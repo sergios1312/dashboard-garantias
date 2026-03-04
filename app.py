@@ -225,16 +225,16 @@ for suc in sorted(df["Sucursal DJI AGRAS - QTC:"].dropna().unique()):
     aplazado = len(df_suc[df_suc["Clasificacion"] == "APLAZADO"])
     atrasado = len(df_suc[df_suc["Clasificacion"] == "ATRASADO"])
     
-resumen.append([
-    suc,
-    total,
-    abiertos,
-    garantia,
-    no_ingresados,
-    a_tiempo,
-    aplazado,
-    atrasado
-])
+    resumen.append([
+        suc,
+        total,
+        abiertos,
+        garantia,
+        no_ingresados,
+        a_tiempo,
+        aplazado,
+        atrasado
+    ])
 
 df_resumen = pd.DataFrame(resumen, columns=[
     "Sucursal",
