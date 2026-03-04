@@ -6,13 +6,14 @@ st.set_page_config(page_title="Dashboard Garantías", layout="wide")
 
 st.title("📊 Dashboard Casos de Garantía")
 
-# =============================
 # CARGAR CSV
-# =============================
 
 @st.cache_data
 def cargar_datos():
-    df = pd.read_csv("casos.csv")   # ← usamos CSV
+    df = pd.read_csv("casos.csv") #Aactualizado el 03/03, recordar actualizar interdiario
+    df["ESTADO DE CASO"] = df["ESTADO DE CASO"].fillna("").astype(str)
+    df.loc[df["Fecha de ingreso"].isna(), "ESTADO DE CASO"] = "NO INGRESADO"
+    df.loc[df["ESTADO DE CASO"].str.strip() == "", "ESTADO DE CASO"] = "SIN ESTADO"
     df["ESTADO GENERAL"] = df["ESTADO GENERAL"].str.upper()
     df["GARANTÍA"] = df["GARANTÍA"].str.upper()
     df["Fecha de salida"] = pd.to_datetime(df["Fecha de salida"], errors="coerce")
@@ -21,9 +22,7 @@ def cargar_datos():
 
 df = cargar_datos()
 
-# =============================
 # FILTROS
-# =============================
 
 st.sidebar.header("Filtros")
 
@@ -34,7 +33,7 @@ sucursal = st.sidebar.selectbox(
 
 estado = st.sidebar.selectbox(
     "Estado",
-    ["Todos", "ABIERTO", "CERRADO"]
+    ["Todos", "ABIERTO", "CERRADO", "DEVUELTO"] # no voy a poner activaciones, no jodan
 )
 
 garantia = st.sidebar.selectbox(
@@ -46,28 +45,42 @@ periodo = st.sidebar.selectbox(
     "Periodo",
     ["Todos"] + sorted(df["Periodo"].dropna().unique())
 )
+estado_caso = st.sidebar.selectbox(
+    "Estado de Caso",
+    ["Todos"] + sorted(df["ESTADO DE CASO"].dropna().unique())
+)
 
-# =============================
 # FILTRAR
-# =============================
 
 df_filtrado = df.copy()
 
 if sucursal != "Todos":
     df_filtrado = df_filtrado[df_filtrado["Sucursal DJI AGRAS - QTC:"] == sucursal]
 
-if estado != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["ESTADO GENERAL"] == estado]
+if estado == "ABIERTO":
+    df_filtrado = df_filtrado[df_filtrado["ESTADO GENERAL"] == "ABIERTO"]
+
+elif estado == "CERRADO":
+    df_filtrado = df_filtrado[df_filtrado["ESTADO GENERAL"] == "CERRADO"]
+
+elif estado == "DEVUELTO":
+    df_filtrado = df_filtrado[
+        df_filtrado["ESTADO DE CASO"].str.upper() == "DEVUELTO"
+    ]
 
 if garantia != "Todos":
     df_filtrado = df_filtrado[df_filtrado["GARANTÍA"] == garantia]
 
-if periodo != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["Periodo"] == periodo]
+# Aplicar periodo solo si no está filtrando por abierto, jesus no se acuerda xd
+if estado != "ABIERTO":
+    if periodo != "Todos":
+        df_filtrado = df_filtrado[df_filtrado["Periodo"] == periodo]
+if estado_caso != "Todos":
+    df_filtrado = df_filtrado[
+        df_filtrado["ESTADO DE CASO"] == estado_caso
+    ]
 
-# =============================
-# KPIs
-# =============================
+# KPIs subanme el sueldo csm
 
 total = len(df_filtrado)
 abiertos = len(df_filtrado[df_filtrado["ESTADO GENERAL"] == "ABIERTO"])
@@ -83,9 +96,8 @@ col4.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
 
 st.markdown("---")
 
-# =============================
-# TABLA LIMPIA
-# =============================
+#---------------------------------------------------------------------------------------------------------
+# TABLA
 
 columnas_visibles = [
     "Numeración",
@@ -105,9 +117,9 @@ df_mostrar = df_filtrado[columnas_finales]
 
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
-# =============================
-# DONUT
-# =============================
+# ------------------------------------------------
+# DONUT YA ME DIO HAMBRE XD
+
 
 if total > 0:
     resumen = (
@@ -127,10 +139,9 @@ if total > 0:
 
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# =============================
+#--------------------------------------------------------------------------------------------------------
 # TABLA ESTADÍSTICA POR SUCURSAL
-# (Solo afectada por filtro PERIODO)
-# =============================
+# (Solo afectada por filtro perido)
 
 st.markdown("## 📊 Estadísticas por Sucursal")
 
@@ -209,25 +220,28 @@ for suc in sorted(df["Sucursal DJI AGRAS - QTC:"].dropna().unique()):
     total = len(df_suc)
     abiertos = len(df_suc[df_suc["ESTADO GENERAL"] == "ABIERTO"])
     garantia = len(df_suc[df_suc["GARANTÍA"] == "CON GARANTIA"])
+    no_ingresados = len(df_suc[df_suc["Fecha de ingreso"].isna()])
     a_tiempo = len(df_suc[df_suc["Clasificacion"] == "A TIEMPO"])
     aplazado = len(df_suc[df_suc["Clasificacion"] == "APLAZADO"])
     atrasado = len(df_suc[df_suc["Clasificacion"] == "ATRASADO"])
     
-    resumen.append([
-        suc,
-        total,
-        abiertos,
-        garantia,
-        a_tiempo,
-        aplazado,
-        atrasado
-    ])
+resumen.append([
+    suc,
+    total,
+    abiertos,
+    garantia,
+    no_ingresados,
+    a_tiempo,
+    aplazado,
+    atrasado
+])
 
 df_resumen = pd.DataFrame(resumen, columns=[
     "Sucursal",
     "Casos Totales",
     "Casos Abiertos",
     "Casos con Garantía",
+    "Casos No Ingresados",
     "Casos Cerrados a Tiempo",
     "Casos Aplazados",
     "Casos Atrasados"
