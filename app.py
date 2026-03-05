@@ -105,57 +105,41 @@ abiertos = len(df_filtrado[df_filtrado["ESTADO GENERAL"] == "ABIERTO"])
 cerrados = len(df_filtrado[df_filtrado["ESTADO GENERAL"] == "CERRADO"])
 porcentaje_abiertos = (abiertos / total * 100) if total > 0 else 0
 
-col1, col2, col3, col4 = st.columns(4)
+kpi_col, plazo_col = st.columns([3,2])
 
-col1.metric("Total Casos", total)
-col2.metric("Abiertos", abiertos)
-col3.metric("Cerrados", cerrados)
-col4.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
+with kpi_col:
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Total Casos", total)
+    col2.metric("Abiertos", abiertos)
+    col3.metric("Cerrados", cerrados)
+    col4.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
+
+with plazo_col:
+
+    st.markdown("#### ⏱ Plazos de reparación")
+
+    st.markdown("""
+    <table style="font-size:13px">
+    <tr>
+        <th>Trabajo</th>
+        <th>Ideal</th>
+        <th>Máx</th>
+    </tr>
+    <tr><td>Rep. Electrónica</td><td>5 días</td><td>10 días</td></tr>
+    <tr><td>Rep. Generador</td><td>7 días</td><td>14 días</td></tr>
+    <tr><td>Rep. Comp. Generador</td><td>14 días</td><td>28 días</td></tr>
+    <tr><td>Rep. Mecánica</td><td>5 días</td><td>10 días</td></tr>
+    <tr><td>Scrap Batería</td><td>7 días</td><td>14 días</td></tr>
+    <tr><td>Rep. Control</td><td>5 días</td><td>10 días</td></tr>
+    <tr><td>Rep. Comp. RC</td><td>7 días</td><td>14 días</td></tr>
+    <tr><td>Caso Crash</td><td>7 días</td><td>14 días</td></tr>
+    <tr><td>Rep. Cargador</td><td>5 días</td><td>10 días</td></tr>
+    </table>
+    """, unsafe_allow_html=True)
 
 st.markdown("---")
-
-# TABLA DE PLAZOS PERMITIDOS
-
-st.markdown("Plazos de reparación")
-
-plazos_tabla = pd.DataFrame({
-"TIPO DE TRABAJO":[
-"REPARACION ELECTRONICA",
-"REPARACION DE GENERADOR",
-"REPARACION COMPLEJA GENERADOR",
-"REPARACION MECANICA",
-"SCRAP BATERIA",
-"REPARACION DE CONTROL REMOTO",
-"REPARACION COMPLEJA RC",
-"CASO CRASH",
-"REPARACION DE CARGADOR"
-],
-
-"PLAZO IDEAL":[
-"5 Dias",
-"7 Dias",
-"14 Dias",
-"5 Dias",
-"7 Dias",
-"5 Dias",
-"7 Dias",
-"7 Dias",
-"5 Dias"
-],
-
-"PLAZO MAXIMO":[
-"10 Dias",
-"14 Dias",
-"28 Dias",
-"10 Dias",
-"14 Dias",
-"10 Dias",
-"14 Dias",
-"14 Dias",
-"10 Dias"
-]
-
-})
 
 st.dataframe(
 plazos_tabla,
