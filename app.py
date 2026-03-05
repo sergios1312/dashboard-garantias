@@ -140,12 +140,6 @@ with plazo_col:
     """, unsafe_allow_html=True)
 
 st.markdown("---")
-
-st.dataframe(
-plazos_tabla,
-use_container_width=True,
-hide_index=True
-)
 #---------------------------------------------------------------------------------------------------------
 # TABLA
 
