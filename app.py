@@ -18,6 +18,7 @@ def cargar_datos():
     df["ESTADO GENERAL"] = df["ESTADO GENERAL"].str.upper()
     df["GARANTÍA"] = df["GARANTÍA"].str.upper()
     df["Fecha de salida"] = pd.to_datetime(df["Fecha de salida"], errors="coerce")
+    df["Fecha de ingreso"] = pd.to_datetime(df["Fecha de ingreso"], errors="coerce")
     df["Periodo"] = df["Fecha de salida"].dt.to_period("M").astype(str)
     return df
 
@@ -37,7 +38,7 @@ def calcular_dias_proceso(row):
     
     return (fecha_sal - fecha_ing).days
 
-df["Dias en proceso"] = df.apply(calcular_dias_proceso, axis=1)
+df["Duracion (Dias)"] = df.apply(calcular_dias_proceso, axis=1)
 
 # FILTRO PRINCIPALES
 
