@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
 st.set_page_config(page_title="Dashboard Garantías", layout="wide")
 
@@ -22,7 +23,23 @@ def cargar_datos():
 
 df = cargar_datos()
 
-# FILTROS
+hoy = pd.Timestamp(datetime.today().date())
+def calcular_dias_proceso(row):
+    
+    fecha_ing = row["Fecha de ingreso"]
+    fecha_sal = row["Fecha de salida"]
+    
+    if pd.isna(fecha_ing):
+        return None
+    
+    if pd.isna(fecha_sal):
+        return (hoy - fecha_ing).days
+    
+    return (fecha_sal - fecha_ing).days
+
+df["Dias en proceso"] = df.apply(calcular_dias_proceso, axis=1)
+
+# FILTRO PRINCIPALES
 
 st.sidebar.header("Filtros")
 
@@ -96,6 +113,54 @@ col4.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
 
 st.markdown("---")
 
+# TABLA DE PLAZOS PERMITIDOS
+
+st.markdown("Plazos de reparación")
+
+plazos_tabla = pd.DataFrame({
+"TIPO DE TRABAJO":[
+"REPARACION ELECTRONICA",
+"REPARACION DE GENERADOR",
+"REPARACION COMPLEJA GENERADOR",
+"REPARACION MECANICA",
+"SCRAP BATERIA",
+"REPARACION DE CONTROL REMOTO",
+"REPARACION COMPLEJA RC",
+"CASO CRASH",
+"REPARACION DE CARGADOR"
+],
+
+"PLAZO IDEAL":[
+"5 Dias",
+"7 Dias",
+"14 Dias",
+"5 Dias",
+"7 Dias",
+"5 Dias",
+"7 Dias",
+"7 Dias",
+"5 Dias"
+],
+
+"PLAZO MAXIMO":[
+"10 Dias",
+"14 Dias",
+"28 Dias",
+"10 Dias",
+"14 Dias",
+"10 Dias",
+"14 Dias",
+"14 Dias",
+"10 Dias"
+]
+
+})
+
+st.dataframe(
+plazos_tabla,
+use_container_width=True,
+hide_index=True
+)
 #---------------------------------------------------------------------------------------------------------
 # TABLA
 
@@ -106,6 +171,7 @@ columnas_visibles = [
     "Cliente",
     "Fecha de ingreso",
     "Fecha de salida",
+    "Duracion (Dias)",
     "GARANTÍA",
     "ESTADO DE CASO",
     "TIPO DE TRABAJO"
@@ -119,7 +185,6 @@ st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
 # ------------------------------------------------
 # DONUT YA ME DIO HAMBRE XD
-
 
 if total > 0:
     resumen = (
@@ -167,8 +232,6 @@ if periodo != "Todos":
 # Convertir fechas
 df_est["Fecha de ingreso"] = pd.to_datetime(df_est["Fecha de ingreso"], errors="coerce")
 df_est["Fecha de salida"] = pd.to_datetime(df_est["Fecha de salida"], errors="coerce")
-
-from datetime import datetime
 
 hoy = pd.Timestamp(datetime.today().date())
 
