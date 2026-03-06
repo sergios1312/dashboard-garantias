@@ -209,11 +209,16 @@ if not df_est.empty:
 
 st.markdown("## 📌 Distribución de Casos por Estado")
 if not df_donut_2.empty:
-    abiertos_pie2 = (df_donut_2["ESTADO GENERAL"] == "ABIERTO").sum()
     a_tiempo_pie2 = (df_donut_2["Clasificacion"] == "A TIEMPO").sum()
     aplazado_pie2 = (df_donut_2["Clasificacion"] == "APLAZADO").sum()
     atrasado_pie2 = (df_donut_2["Clasificacion"] == "ATRASADO").sum()
-    df_grafico = pd.DataFrame({"Estado": ["Abiertos", "Cerrados a Tiempo", "Aplazados", "Atrasados"], "Cantidad": [abiertos_pie2, a_tiempo_pie2, aplazado_pie2, atrasado_pie2]})
+    
+    # Hemos eliminado "Abiertos" de la lista de estados y cantidades
+    df_grafico = pd.DataFrame({
+        "Estado": ["Cerrados a Tiempo", "Aplazados", "Atrasados"], 
+        "Cantidad": [a_tiempo_pie2, aplazado_pie2, atrasado_pie2]
+    })
+    
     df_grafico = df_grafico[df_grafico["Cantidad"] > 0]
     if not df_grafico.empty:
         fig_estado = px.pie(df_grafico, names="Estado", values="Cantidad", hole=0.4, template="plotly_white")
@@ -270,7 +275,7 @@ if not df_barras.empty:
         yaxis=dict(
             autorange="reversed",
             tickfont=dict(size=11),
-            automargin=True, # <--- CORREGIDO: Vuelve a estar en True para que no corte los nombres
+            automargin=True,
         ),
         xaxis=dict(
             title="Duración (Días)",
@@ -285,7 +290,6 @@ if not df_barras.empty:
             xanchor="center",
             x=0.5
         ),
-        # Quitamos el margen izquierdo (l=10) para dejar que el automargin trabaje solo
         margin=dict(r=20, t=30, b=20) 
     )
     
