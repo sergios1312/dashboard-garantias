@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
+import numpy as np  # <--- Añadido para el cálculo exacto de días laborables
 import plotly.express as px
-import plotly.graph_objects as go # <--- Añadido para el nuevo gráfico
+import plotly.graph_objects as go
 from datetime import datetime
 
 st.set_page_config(page_title="Dashboard Garantías", layout="wide")
@@ -24,10 +25,10 @@ plazos_dict = {
 # CARGAR CSV Y PREPROCESAR
 @st.cache_data
 def cargar_datos():
-    df = pd.read_csv("casos.csv") # Actualizado el 03/03, recordar actualizar interdiario
+    df = pd.read_csv("casos.csv")
     df["ESTADO DE CASO"] = df["ESTADO DE CASO"].fillna("").astype(str)
     
-    # Convertir fechas a datetime para cálculos
+    # Convertir fechas a datetime
     df["Fecha de ingreso"] = pd.to_datetime(df["Fecha de ingreso"], errors="coerce")
     df["Fecha de salida"] = pd.to_datetime(df["Fecha de salida"], errors="coerce")
     
@@ -38,15 +39,33 @@ def cargar_datos():
     df["GARANTÍA"] = df["GARANTÍA"].str.upper()
     df["Periodo"] = df["Fecha de salida"].dt.to_period("M").astype(str)
     
-    # Calcular días y clasificación
-    hoy = pd.Timestamp(datetime.today().date())
+    hoy = datetime.today().date()
     
+    # NUEVO CÁLCULO DE DÍAS (Lunes a Sábado, inclusivo, sin negativos)
     def calcular_dias(row):
         fecha_ing = row["Fecha de ingreso"]
         fecha_sal = row["Fecha de salida"]
-        if pd.isna(fecha_ing): return None
-        if pd.isna(fecha_sal): return (hoy - fecha_ing).days
-        return (fecha_sal - fecha_ing).days
+        
+        if pd.isna(fecha_ing): 
+            return None
+            
+        if pd.isna(fecha_sal): 
+            d2 = hoy
+        else:
+            d2 = fecha_sal.date()
+            
+        d1 = fecha_ing.date()
+        
+        # Corrección de datos: si salio "antes" de ingresar, es 0
+        if d2 < d1:
+            return 0
+            
+        # busday_count no incluye el día final, así que le sumamos 1 día para que sea inclusivo
+        d2_inclusivo = d2 + pd.Timedelta(days=1)
+        
+        # weekmask '1111110' significa Lunes a Sábado (1=laborable, 0=no laborable)
+        dias_habiles = np.busday_count(d1, d2_inclusivo, weekmask='1111110')
+        return int(dias_habiles)
         
     df["Duracion (Dias)"] = df.apply(calcular_dias, axis=1)
     df["Plazo"] = df["TIPO DE TRABAJO"].map(plazos_dict)
@@ -55,8 +74,10 @@ def cargar_datos():
         if row["ESTADO GENERAL"] != "CERRADO": return None
         if pd.isna(row["Fecha de ingreso"]) or pd.isna(row["Fecha de salida"]): return None
         if pd.isna(row["Plazo"]): return None
-        if row["Duracion (Dias)"] <= row["Plazo"]: return "A TIEMPO"
-        elif row["Duracion (Dias)"] <= row["Plazo"] * 2: return "APLAZADO"
+        
+        dias = row["Duracion (Dias)"]
+        if dias <= row["Plazo"]: return "A TIEMPO"
+        elif dias <= row["Plazo"] * 2: return "APLAZADO"
         else: return "ATRASADO"
         
     df["Clasificacion"] = df.apply(clasificar, axis=1)
@@ -83,14 +104,13 @@ garantia = st.sidebar.selectbox(
     ["Todos", "CON GARANTIA", "SIN GARANTIA"]
 )
 
-# PERIODO: Selección Múltiple sin "NaT"
 opciones_periodo = [p for p in df["Periodo"].dropna().unique() if p != "NaT"]
 opciones_periodo = sorted(opciones_periodo)
 
 periodos_seleccionados = st.sidebar.multiselect(
     "Periodo",
     options=opciones_periodo,
-    default=opciones_periodo # Por defecto muestra todos los periodos válidos
+    default=opciones_periodo
 )
 
 estado_caso = st.sidebar.selectbox(
@@ -98,9 +118,7 @@ estado_caso = st.sidebar.selectbox(
     ["Todos"] + sorted(df["ESTADO DE CASO"].dropna().unique())
 )
 
-# -------------------------------------------------------------------------
-# CREACIÓN DE MÁSCARAS INDEPENDIENTES PARA CADA FILTRO
-# -------------------------------------------------------------------------
+# MÁSCARAS
 cond_sucursal = df["Sucursal DJI AGRAS - QTC:"] == sucursal if sucursal != "Todos" else pd.Series(True, index=df.index)
 
 cond_estado = pd.Series(True, index=df.index)
@@ -111,30 +129,22 @@ elif estado == "DEVUELTO": cond_estado = df["ESTADO DE CASO"].str.upper() == "DE
 cond_garantia = df["GARANTÍA"] == garantia if garantia != "Todos" else pd.Series(True, index=df.index)
 cond_estado_caso = df["ESTADO DE CASO"] == estado_caso if estado_caso != "Todos" else pd.Series(True, index=df.index)
 
-# Lógica condicional del Periodo (Manejo de NaT)
 if len(periodos_seleccionados) == len(opciones_periodo) or not periodos_seleccionados:
     cond_periodo = pd.Series(True, index=df.index)
 else:
     cond_periodo = df["Periodo"].isin(periodos_seleccionados)
 
-# Regla especial
 cond_periodo_kpi = cond_periodo if estado != "ABIERTO" else pd.Series(True, index=df.index)
 
-# -------------------------------------------------------------------------
-# APLICAR REGLAS ESPECÍFICAS DE FILTRADO POR COMPONENTE
-# -------------------------------------------------------------------------
-
+# APLICAR FILTROS
 df_tabla_principal = df[cond_sucursal & cond_estado & cond_garantia & cond_estado_caso & cond_periodo_kpi].copy()
 df_donut_1 = df[cond_estado & cond_garantia & cond_estado_caso & cond_periodo_kpi].copy()
 df_est = df[cond_periodo].copy()
 df_donut_2 = df[cond_periodo & cond_sucursal].copy()
 
-# MÁSCARA PARA EL NUEVO GRÁFICO (Sucursal, periodo y Garantia)
+# Datos para el gráfico de barras (afectado por Sucursal, Periodo y Garantía)
 df_barras = df[cond_sucursal & cond_periodo & cond_garantia].copy()
 
-# -------------------------------------------------------------------------
-# FUNCIÓN PARA QUITAR LAS HORAS EN LA VISTA
-# -------------------------------------------------------------------------
 def formatear_fechas_visual(dataframe):
     df_vis = dataframe.copy()
     if "Fecha de ingreso" in df_vis.columns:
@@ -144,7 +154,7 @@ def formatear_fechas_visual(dataframe):
     return df_vis
 
 # -------------------------------------------------------------------------
-# RENDERIZADO DEL DASHBOARD (Layout KPIs + Tabla Plazos)
+# RENDERIZADO DEL DASHBOARD
 # -------------------------------------------------------------------------
 
 total = len(df_tabla_principal)
@@ -188,11 +198,10 @@ columnas_visibles = [
 
 columnas_finales = [col for col in columnas_visibles if col in df_tabla_principal.columns]
 df_mostrar = df_tabla_principal[columnas_finales]
-
 df_mostrar = formatear_fechas_visual(df_mostrar)
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
-# DONUT YA ME DIO HAMBRE XD (Todos menos sucursal)
+# DONUT 1
 if not df_donut_1.empty:
     resumen_donut1 = df_donut_1.groupby("Sucursal DJI AGRAS - QTC:").size().reset_index(name="Cantidad")
     fig_pie = px.pie(
@@ -204,9 +213,8 @@ if not df_donut_1.empty:
     )
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# TABLA ESTADÍSTICA POR SUCURSAL (Solo afectada por filtro periodo)
+# TABLA ESTADÍSTICA
 st.markdown("## 📊 Estadísticas por Sucursal")
-
 if not df_est.empty:
     df_resumen = df_est.groupby("Sucursal DJI AGRAS - QTC:").agg(
         Casos_Totales=("ESTADO GENERAL", "count"),
@@ -222,12 +230,10 @@ if not df_est.empty:
         "Sucursal", "Casos Totales", "Casos Abiertos", "Casos con Garantía",
         "Casos No Ingresados", "Casos Cerrados a Tiempo", "Casos Aplazados", "Casos Atrasados"
     ]
-    
     st.dataframe(df_resumen, use_container_width=True, hide_index=True)
 
-# PIE POR SUCURSAL (Solo filtro periodo y sucursal)
+# PIE 2
 st.markdown("## 📌 Distribución de Casos por Estado")
-
 if not df_donut_2.empty:
     abiertos_pie2 = (df_donut_2["ESTADO GENERAL"] == "ABIERTO").sum()
     a_tiempo_pie2 = (df_donut_2["Clasificacion"] == "A TIEMPO").sum()
@@ -238,7 +244,6 @@ if not df_donut_2.empty:
         "Estado": ["Abiertos", "Cerrados a Tiempo", "Aplazados", "Atrasados"],
         "Cantidad": [abiertos_pie2, a_tiempo_pie2, aplazado_pie2, atrasado_pie2]
     })
-
     df_grafico = df_grafico[df_grafico["Cantidad"] > 0]
 
     if not df_grafico.empty:
@@ -254,67 +259,68 @@ if not df_donut_2.empty:
 
 
 # -------------------------------------------------------------------------
-# NUEVO: GRÁFICO DE BARRAS DE TIEMPO (RTAT vs TAT) AL FINAL
+# GRÁFICO DE BARRAS DE TIEMPO (CORREGIDO Y AJUSTADO)
 # -------------------------------------------------------------------------
 st.markdown("---")
 st.markdown("## ⏱️ Tiempos de Reparación por Caso")
 
-# Descartamos los casos que no tengan fecha de ingreso para poder graficarlos bien
 df_barras = df_barras.dropna(subset=["Duracion (Dias)"]).copy()
 
 if not df_barras.empty:
-    # RTAT (Tiempo real) ya lo tenemos calculado en "Duracion (Dias)"
     df_barras["RTAT"] = df_barras["Duracion (Dias)"]
-    
-    # TAT (Tiempo Máximo Ideal) = Plazo ideal * 2, basado en tu tabla
     df_barras["TAT"] = df_barras["Plazo"] * 2 
-    
-    # Etiqueta combinada: "Numeración" arriba, "(Cliente)" abajo y más pequeño usando HTML
     df_barras["Etiqueta"] = df_barras["Numeración"].astype(str) + "<br><span style='font-size:10px'>(" + df_barras["Cliente"].astype(str) + ")</span>"
-    
-    # Ordenamos por fecha de ingreso (los más recientes primero, o como prefieras)
     df_barras = df_barras.sort_values("Fecha de ingreso", ascending=False)
 
     fig_barras = go.Figure()
     
-    # Barra de RTAT (Tiempo Real)
+    # Barra de RTAT con números visibles
     fig_barras.add_trace(go.Bar(
         y=df_barras["Etiqueta"],
         x=df_barras["RTAT"],
         name="RTAT: tiempo real de reparación",
         orientation='h',
-        marker_color='#FF99B4' # Rosa inspirado en tu boceto
+        marker_color='#FF99B4',
+        text=df_barras["RTAT"],
+        textposition='outside' # Muestra el número fuera de la barra
     ))
     
-    # Barra de TAT (Tiempo Ideal Máximo)
+    # Barra de TAT con números visibles
     fig_barras.add_trace(go.Bar(
         y=df_barras["Etiqueta"],
         x=df_barras["TAT"],
         name="TAT: tiempo ideal máximo",
         orientation='h',
-        marker_color='#B4D82C' # Verde inspirado en tu boceto
+        marker_color='#B4D82C',
+        text=df_barras["TAT"],
+        textposition='outside'
     ))
     
-    # Truco: Calculamos una altura dinámica basada en la cantidad de casos.
-    # Así las barras no se "aplastan" si hay 100 casos. 70 píxeles por fila suele verse bien.
     altura_dinamica = max(400, len(df_barras) * 70) 
     
     fig_barras.update_layout(
-        barmode='group', # Agrupa las barras lado a lado
+        barmode='group', 
         height=altura_dinamica,
-        yaxis=dict(autorange="reversed"), # Invierte el eje Y para que el primer caso de la lista salga arriba
-        xaxis_title="Duración (Días)",
+        yaxis=dict(
+            autorange="reversed",
+            tickfont=dict(size=11) # Achicamos un poco la letra para que ocupe menos espacio a la izquierda
+        ),
+        xaxis=dict(
+            title="Duración (Días)",
+            dtick=5, # Fuerzo a que marque cada 5 días
+            showgrid=True,
+            gridcolor='lightgray'
+        ),
         legend=dict(
-            orientation="h", # Leyenda horizontal
+            orientation="h", 
             yanchor="bottom",
-            y=1.02,
+            y=1.01, # Acerqué la leyenda a la gráfica
             xanchor="center",
             x=0.5
         ),
-        margin=dict(l=10, r=10, t=50, b=10)
+        margin=dict(l=10, r=20, t=30, b=20) # Quité espacio de arriba (t) y de la izquierda (l)
     )
     
-    # Metemos el gráfico dentro de un contenedor con altura fija de 500px para que aparezca la barra de scroll vertical
     with st.container(height=500):
         st.plotly_chart(fig_barras, use_container_width=True)
 else:
