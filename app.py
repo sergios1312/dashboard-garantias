@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go # <--- Añadido para el nuevo gráfico
 from datetime import datetime
 
 st.set_page_config(page_title="Dashboard Garantías", layout="wide")
@@ -112,13 +113,11 @@ cond_estado_caso = df["ESTADO DE CASO"] == estado_caso if estado_caso != "Todos"
 
 # Lógica condicional del Periodo (Manejo de NaT)
 if len(periodos_seleccionados) == len(opciones_periodo) or not periodos_seleccionados:
-    # Si están todos seleccionados (o se borraron todos), mostramos toda la base (incluye NaT)
     cond_periodo = pd.Series(True, index=df.index)
 else:
-    # Si se seleccionó uno o varios específicos, filtramos estrictamente
     cond_periodo = df["Periodo"].isin(periodos_seleccionados)
 
-# Regla especial: Aplicar periodo solo si no está filtrando por abierto ("jesus no se acuerda xd")
+# Regla especial
 cond_periodo_kpi = cond_periodo if estado != "ABIERTO" else pd.Series(True, index=df.index)
 
 # -------------------------------------------------------------------------
@@ -129,6 +128,9 @@ df_tabla_principal = df[cond_sucursal & cond_estado & cond_garantia & cond_estad
 df_donut_1 = df[cond_estado & cond_garantia & cond_estado_caso & cond_periodo_kpi].copy()
 df_est = df[cond_periodo].copy()
 df_donut_2 = df[cond_periodo & cond_sucursal].copy()
+
+# MÁSCARA PARA EL NUEVO GRÁFICO (Sucursal, periodo y Garantia)
+df_barras = df[cond_sucursal & cond_periodo & cond_garantia].copy()
 
 # -------------------------------------------------------------------------
 # FUNCIÓN PARA QUITAR LAS HORAS EN LA VISTA
@@ -142,7 +144,7 @@ def formatear_fechas_visual(dataframe):
     return df_vis
 
 # -------------------------------------------------------------------------
-# RENDERIZADO DEL DASHBOARD (Nuevo Layout KPIs + Tabla Plazos)
+# RENDERIZADO DEL DASHBOARD (Layout KPIs + Tabla Plazos)
 # -------------------------------------------------------------------------
 
 total = len(df_tabla_principal)
@@ -150,17 +152,15 @@ abiertos = len(df_tabla_principal[df_tabla_principal["ESTADO GENERAL"] == "ABIER
 cerrados = len(df_tabla_principal[df_tabla_principal["ESTADO GENERAL"] == "CERRADO"])
 porcentaje_abiertos = (abiertos / total * 100) if total > 0 else 0
 
-# Creamos dos columnas principales: una para los KPIs y otra para la tabla de plazos
 col_kpis, col_tabla_plazos = st.columns([1, 1.2]) 
 
 with col_kpis:
-    # Dividimos la columna de KPIs en dos filas con dos columnas cada una
-    st.write("") # Pequeño espacio para alinear mejor con la tabla
+    st.write("") 
     fila1_col1, fila1_col2 = st.columns(2)
     fila1_col1.metric("Total Casos", total)
     fila1_col2.metric("Abiertos", abiertos)
     
-    st.write("<br>", unsafe_allow_html=True) # Espacio vertical entre las métricas
+    st.write("<br>", unsafe_allow_html=True) 
     
     fila2_col1, fila2_col2 = st.columns(2)
     fila2_col1.metric("Cerrados", cerrados)
@@ -251,3 +251,71 @@ if not df_donut_2.empty:
         )
         fig_estado.update_traces(textinfo="label+percent+value")
         st.plotly_chart(fig_estado, use_container_width=True)
+
+
+# -------------------------------------------------------------------------
+# NUEVO: GRÁFICO DE BARRAS DE TIEMPO (RTAT vs TAT) AL FINAL
+# -------------------------------------------------------------------------
+st.markdown("---")
+st.markdown("## ⏱️ Tiempos de Reparación por Caso")
+
+# Descartamos los casos que no tengan fecha de ingreso para poder graficarlos bien
+df_barras = df_barras.dropna(subset=["Duracion (Dias)"]).copy()
+
+if not df_barras.empty:
+    # RTAT (Tiempo real) ya lo tenemos calculado en "Duracion (Dias)"
+    df_barras["RTAT"] = df_barras["Duracion (Dias)"]
+    
+    # TAT (Tiempo Máximo Ideal) = Plazo ideal * 2, basado en tu tabla
+    df_barras["TAT"] = df_barras["Plazo"] * 2 
+    
+    # Etiqueta combinada: "Numeración" arriba, "(Cliente)" abajo y más pequeño usando HTML
+    df_barras["Etiqueta"] = df_barras["Numeración"].astype(str) + "<br><span style='font-size:10px'>(" + df_barras["Cliente"].astype(str) + ")</span>"
+    
+    # Ordenamos por fecha de ingreso (los más recientes primero, o como prefieras)
+    df_barras = df_barras.sort_values("Fecha de ingreso", ascending=False)
+
+    fig_barras = go.Figure()
+    
+    # Barra de RTAT (Tiempo Real)
+    fig_barras.add_trace(go.Bar(
+        y=df_barras["Etiqueta"],
+        x=df_barras["RTAT"],
+        name="RTAT: tiempo real de reparación",
+        orientation='h',
+        marker_color='#FF99B4' # Rosa inspirado en tu boceto
+    ))
+    
+    # Barra de TAT (Tiempo Ideal Máximo)
+    fig_barras.add_trace(go.Bar(
+        y=df_barras["Etiqueta"],
+        x=df_barras["TAT"],
+        name="TAT: tiempo ideal máximo",
+        orientation='h',
+        marker_color='#B4D82C' # Verde inspirado en tu boceto
+    ))
+    
+    # Truco: Calculamos una altura dinámica basada en la cantidad de casos.
+    # Así las barras no se "aplastan" si hay 100 casos. 70 píxeles por fila suele verse bien.
+    altura_dinamica = max(400, len(df_barras) * 70) 
+    
+    fig_barras.update_layout(
+        barmode='group', # Agrupa las barras lado a lado
+        height=altura_dinamica,
+        yaxis=dict(autorange="reversed"), # Invierte el eje Y para que el primer caso de la lista salga arriba
+        xaxis_title="Duración (Días)",
+        legend=dict(
+            orientation="h", # Leyenda horizontal
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5
+        ),
+        margin=dict(l=10, r=10, t=50, b=10)
+    )
+    
+    # Metemos el gráfico dentro de un contenedor con altura fija de 500px para que aparezca la barra de scroll vertical
+    with st.container(height=500):
+        st.plotly_chart(fig_barras, use_container_width=True)
+else:
+    st.info("No hay datos suficientes para graficar los tiempos con los filtros actuales.")
