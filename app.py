@@ -14,7 +14,7 @@ st.title("📊 Dashboard Casos de Garantía")
 plazos_dict = {
     "REPARACION ELECTRONICA": 5,
     "REPARACION DE GENERADOR": 7,
-    "REPARACION COMPLEJA GENERADOR": 14,
+    "REPARACION COMPLEJA GENERADOR": 10,
     "REPARACION MECANICA": 5,
     "SCRAP BATERIA": 7,
     "REPARACION DE CONTROL REMOTO": 5,
@@ -224,7 +224,7 @@ if not df_donut_2.empty:
 # GRÁFICO DE BARRAS DE TIEMPO (CORREGIDO EJE Y)
 # -------------------------------------------------------------------------
 st.markdown("---")
-st.markdown("## ⏱️ Tiempos de Reparación por Caso (Cerrados)")
+st.markdown("## ⏱️ Tiempos de Reparación por Caso")
 
 df_barras = df_barras.dropna(subset=["Duracion (Dias)"]).copy()
 
