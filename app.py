@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import numpy as np  # <--- Añadido para el cálculo exacto de días laborables
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import textwrap # <--- Añadido para el ajuste de texto de los nombres
 from datetime import datetime
 
 st.set_page_config(page_title="Dashboard Garantías", layout="wide")
@@ -41,7 +42,7 @@ def cargar_datos():
     
     hoy = datetime.today().date()
     
-    # NUEVO CÁLCULO DE DÍAS (Lunes a Sábado, inclusivo, sin negativos)
+    # CÁLCULO DE DÍAS (Lunes a Sábado, inclusivo, sin negativos)
     def calcular_dias(row):
         fecha_ing = row["Fecha de ingreso"]
         fecha_sal = row["Fecha de salida"]
@@ -259,17 +260,45 @@ if not df_donut_2.empty:
 
 
 # -------------------------------------------------------------------------
-# GRÁFICO DE BARRAS DE TIEMPO (CORREGIDO Y AJUSTADO)
+# GRÁFICO DE BARRAS DE TIEMPO (CORREGIDO, AJUSTADO Y CON AJUSTE DE TEXTO)
 # -------------------------------------------------------------------------
 st.markdown("---")
 st.markdown("## ⏱️ Tiempos de Reparación por Caso")
 
 df_barras = df_barras.dropna(subset=["Duracion (Dias)"]).copy()
 
+# NUEVO: Función auxiliar para formatear la etiqueta del eje Y con ajuste de texto automático
+def formatear_etiqueta_eje(numeracion, cliente, ancho_max=25):
+    # Aseguramos que el cliente sea una cadena y limpiamos espacios
+    cliente_str = str(cliente).strip()
+    
+    # Usamos textwrap para dividir el nombre del cliente si supera el ancho máximo
+    # No rompemos palabras largas por la mitad por estética.
+    cliente_envuelto = textwrap.fill(cliente_str, width=ancho_max, break_long_words=False)
+    
+    # Reemplazamos los saltos de línea (\n) con etiquetas HTML (<br>)
+    cliente_html = cliente_envuelto.replace('\n', '<br>')
+    
+    # Construimos la etiqueta final: Numeración arriba, Cliente ajustado abajo
+    return (
+        f"{numeracion}<br>"
+        f"<span style='font-size:10px'>( {cliente_html} )</span>"
+    )
+
 if not df_barras.empty:
     df_barras["RTAT"] = df_barras["Duracion (Dias)"]
     df_barras["TAT"] = df_barras["Plazo"] * 2 
-    df_barras["Etiqueta"] = df_barras["Numeración"].astype(str) + "<br><span style='font-size:10px'>(" + df_barras["Cliente"].astype(str) + ")</span>"
+    
+    # NUEVO: Aplicar la nueva función de formateo con ajuste de texto a cada fila
+    # He puesto un ancho máximo de 25 caracteres para el nombre del cliente.
+    # Si te parece mucho o poco, puedes cambiar ese número aquí abajo.
+    ancho_max_cliente = 25 
+    
+    df_barras["Etiqueta"] = df_barras.apply(
+        lambda row: formatear_etiqueta_eje(row["Numeración"], row["Cliente"], ancho_max=ancho_max_cliente),
+        axis=1
+    )
+    
     df_barras = df_barras.sort_values("Fecha de ingreso", ascending=False)
 
     fig_barras = go.Figure()
@@ -296,14 +325,18 @@ if not df_barras.empty:
         textposition='outside'
     ))
     
-    altura_dinamica = max(400, len(df_barras) * 70) 
+    # Calculamos una altura dinámica basada en la cantidad de filas de texto HTML (numeración + líneas de cliente).
+    # Como los nombres ahora ocupan 2 o más renglones, aumentamos el factor de altura por caso.
+    # Usaremos 90 píxeles por caso para dar aire al texto envuelto.
+    altura_dinamica = max(400, len(df_barras) * 90) 
     
     fig_barras.update_layout(
         barmode='group', 
         height=altura_dinamica,
         yaxis=dict(
             autorange="reversed",
-            tickfont=dict(size=11) # Achicamos un poco la letra para que ocupe menos espacio a la izquierda
+            tickfont=dict(size=11), # Achicamos un poco la letra para que ocupe menos espacio a la izquierda
+            automargin=False, # NUEVO: Desactivamos el automargin para tener control total
         ),
         xaxis=dict(
             title="Duración (Días)",
@@ -318,7 +351,9 @@ if not df_barras.empty:
             xanchor="center",
             x=0.5
         ),
-        margin=dict(l=10, r=20, t=30, b=20) # Quité espacio de arriba (t) y de la izquierda (l)
+        # NUEVO: Ajustamos los márgenes. l=10 pega mucho la gráfica a la izquierda pq el texto HTML ya no empuja.
+        # t=30 reduce espacio arriba. b=20 reduce espacio abajo.
+        margin=dict(l=10, r=20, t=30, b=20) 
     )
     
     with st.container(height=500):
