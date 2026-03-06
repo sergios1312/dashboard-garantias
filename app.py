@@ -7,7 +7,7 @@ st.set_page_config(page_title="Dashboard Garantías", layout="wide")
 
 st.title("📊 Dashboard Casos de Garantía")
 
-# 1. UNIFICAR DICCIONARIO DE PLAZOS (Para evitar doble escritura)
+# 1. UNIFICAR DICCIONARIO DE PLAZOS
 plazos_dict = {
     "REPARACION ELECTRONICA": 5,
     "REPARACION DE GENERADOR": 7,
@@ -20,13 +20,13 @@ plazos_dict = {
     "REPARACION DE CARGADOR": 5
 }
 
-# CARGAR CSV Y PREPROCESAR TODO UNA SOLA VEZ
+# CARGAR CSV Y PREPROCESAR
 @st.cache_data
 def cargar_datos():
     df = pd.read_csv("casos.csv") # Actualizado el 03/03, recordar actualizar interdiario
     df["ESTADO DE CASO"] = df["ESTADO DE CASO"].fillna("").astype(str)
     
-    # Convertir fechas a datetime para cálculos (las horas se ocultan luego en la visualización)
+    # Convertir fechas a datetime para cálculos
     df["Fecha de ingreso"] = pd.to_datetime(df["Fecha de ingreso"], errors="coerce")
     df["Fecha de salida"] = pd.to_datetime(df["Fecha de salida"], errors="coerce")
     
@@ -37,7 +37,7 @@ def cargar_datos():
     df["GARANTÍA"] = df["GARANTÍA"].str.upper()
     df["Periodo"] = df["Fecha de salida"].dt.to_period("M").astype(str)
     
-    # Calcular días y clasificación aquí para no repetirlo después
+    # Calcular días y clasificación
     hoy = pd.Timestamp(datetime.today().date())
     
     def calcular_dias(row):
@@ -74,7 +74,7 @@ sucursal = st.sidebar.selectbox(
 
 estado = st.sidebar.selectbox(
     "Estado",
-    ["Todos", "ABIERTO", "CERRADO", "DEVUELTO"] # no voy a poner activaciones, no jodan
+    ["Todos", "ABIERTO", "CERRADO", "DEVUELTO"]
 )
 
 garantia = st.sidebar.selectbox(
@@ -82,12 +82,14 @@ garantia = st.sidebar.selectbox(
     ["Todos", "CON GARANTIA", "SIN GARANTIA"]
 )
 
-# PERIODO: Ahora es Selección Múltiple
-opciones_periodo = sorted(df["Periodo"].dropna().unique())
+# PERIODO: Selección Múltiple sin "NaT"
+opciones_periodo = [p for p in df["Periodo"].dropna().unique() if p != "NaT"]
+opciones_periodo = sorted(opciones_periodo)
+
 periodos_seleccionados = st.sidebar.multiselect(
     "Periodo",
     options=opciones_periodo,
-    default=opciones_periodo # Por defecto muestra todos
+    default=opciones_periodo # Por defecto muestra todos los periodos válidos
 )
 
 estado_caso = st.sidebar.selectbox(
@@ -108,8 +110,13 @@ elif estado == "DEVUELTO": cond_estado = df["ESTADO DE CASO"].str.upper() == "DE
 cond_garantia = df["GARANTÍA"] == garantia if garantia != "Todos" else pd.Series(True, index=df.index)
 cond_estado_caso = df["ESTADO DE CASO"] == estado_caso if estado_caso != "Todos" else pd.Series(True, index=df.index)
 
-# Condición de Periodo (Acepta 1 o más)
-cond_periodo = df["Periodo"].isin(periodos_seleccionados) if periodos_seleccionados else pd.Series(True, index=df.index)
+# Lógica condicional del Periodo (Manejo de NaT)
+if len(periodos_seleccionados) == len(opciones_periodo) or not periodos_seleccionados:
+    # Si están todos seleccionados (o se borraron todos), mostramos toda la base (incluye NaT)
+    cond_periodo = pd.Series(True, index=df.index)
+else:
+    # Si se seleccionó uno o varios específicos, filtramos estrictamente
+    cond_periodo = df["Periodo"].isin(periodos_seleccionados)
 
 # Regla especial: Aplicar periodo solo si no está filtrando por abierto ("jesus no se acuerda xd")
 cond_periodo_kpi = cond_periodo if estado != "ABIERTO" else pd.Series(True, index=df.index)
@@ -118,16 +125,9 @@ cond_periodo_kpi = cond_periodo if estado != "ABIERTO" else pd.Series(True, inde
 # APLICAR REGLAS ESPECÍFICAS DE FILTRADO POR COMPONENTE
 # -------------------------------------------------------------------------
 
-# 1. TABLA (Principal): Se aplican TODOS los filtros
 df_tabla_principal = df[cond_sucursal & cond_estado & cond_garantia & cond_estado_caso & cond_periodo_kpi].copy()
-
-# 2. DONUT YA ME DIO HAMBRE (Primer pie): Todos los filtros MENOS sucursal
 df_donut_1 = df[cond_estado & cond_garantia & cond_estado_caso & cond_periodo_kpi].copy()
-
-# 3. TABLA ESTADÍSTICA POR SUCURSAL: Solo se aplica filtro de periodo
 df_est = df[cond_periodo].copy()
-
-# 4. PIE POR SUCURSAL (Segundo pie): Se aplica periodo y sucursal
 df_donut_2 = df[cond_periodo & cond_sucursal].copy()
 
 # -------------------------------------------------------------------------
@@ -142,33 +142,42 @@ def formatear_fechas_visual(dataframe):
     return df_vis
 
 # -------------------------------------------------------------------------
-# RENDERIZADO DEL DASHBOARD
+# RENDERIZADO DEL DASHBOARD (Nuevo Layout KPIs + Tabla Plazos)
 # -------------------------------------------------------------------------
 
-# KPIs subanme el sueldo csm
 total = len(df_tabla_principal)
 abiertos = len(df_tabla_principal[df_tabla_principal["ESTADO GENERAL"] == "ABIERTO"])
 cerrados = len(df_tabla_principal[df_tabla_principal["ESTADO GENERAL"] == "CERRADO"])
 porcentaje_abiertos = (abiertos / total * 100) if total > 0 else 0
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Casos", total)
-col2.metric("Abiertos", abiertos)
-col3.metric("Cerrados", cerrados)
-col4.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
+# Creamos dos columnas principales: una para los KPIs y otra para la tabla de plazos
+col_kpis, col_tabla_plazos = st.columns([1, 1.2]) 
+
+with col_kpis:
+    # Dividimos la columna de KPIs en dos filas con dos columnas cada una
+    st.write("") # Pequeño espacio para alinear mejor con la tabla
+    fila1_col1, fila1_col2 = st.columns(2)
+    fila1_col1.metric("Total Casos", total)
+    fila1_col2.metric("Abiertos", abiertos)
+    
+    st.write("<br>", unsafe_allow_html=True) # Espacio vertical entre las métricas
+    
+    fila2_col1, fila2_col2 = st.columns(2)
+    fila2_col1.metric("Cerrados", cerrados)
+    fila2_col2.metric("% Abiertos", f"{porcentaje_abiertos:.1f}%")
+
+with col_tabla_plazos:
+    st.markdown("<p style='text-align: center; margin-bottom: 5px;'>Plazos de reparación</p>", unsafe_allow_html=True)
+    
+    plazos_tabla = pd.DataFrame({
+        "TIPO DE TRABAJO": list(plazos_dict.keys()),
+        "PLAZO IDEAL": [f"{v} Dias" for v in plazos_dict.values()],
+        "PLAZO MAXIMO": [f"{v*2} Dias" for v in plazos_dict.values()]
+    })
+    
+    st.dataframe(plazos_tabla, use_container_width=True, hide_index=True)
 
 st.markdown("---")
-
-# TABLA DE PLAZOS PERMITIDOS (Ahora toma los datos del diccionario)
-st.markdown("Plazos de reparación")
-
-plazos_tabla = pd.DataFrame({
-    "TIPO DE TRABAJO": list(plazos_dict.keys()),
-    "PLAZO IDEAL": [f"{v} Dias" for v in plazos_dict.values()],
-    "PLAZO MAXIMO": [f"{v*2} Dias" for v in plazos_dict.values()] # 10 días, 14, 28, etc.
-})
-
-st.dataframe(plazos_tabla, use_container_width=True, hide_index=True)
 
 # TABLA PRINCIPAL
 columnas_visibles = [
@@ -180,7 +189,6 @@ columnas_visibles = [
 columnas_finales = [col for col in columnas_visibles if col in df_tabla_principal.columns]
 df_mostrar = df_tabla_principal[columnas_finales]
 
-# Limpiamos las horas justo antes de mostrar la tabla
 df_mostrar = formatear_fechas_visual(df_mostrar)
 st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
 
@@ -200,7 +208,6 @@ if not df_donut_1.empty:
 st.markdown("## 📊 Estadísticas por Sucursal")
 
 if not df_est.empty:
-    # Esto reemplaza tu bucle "for". Es muchísimo más rápido.
     df_resumen = df_est.groupby("Sucursal DJI AGRAS - QTC:").agg(
         Casos_Totales=("ESTADO GENERAL", "count"),
         Casos_Abiertos=("ESTADO GENERAL", lambda x: (x == "ABIERTO").sum()),
